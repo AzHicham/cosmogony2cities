@@ -3,11 +3,13 @@ use log::{error, info};
 // mod schema;
 use cosmogony::{Cosmogony, Zone, ZoneType};
 use failure::Error;
-use geo::{MultiPolygon, Point};
+use geo_types::{MultiPolygon, Point};
 use itertools::Itertools;
 use std::iter::Iterator;
 use structopt;
 use structopt::StructOpt;
+use wkt::ToWkt;
+use postgres::{Connection, TlsMode};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cosmogony2cities")]
@@ -76,19 +78,28 @@ fn default() -> String {
 
 impl AdministrativeRegion {
     fn to_sql(self) -> String {
-        let coord = self.wkt_coord();
-        let boundary = self.wkt_boundary();
-        format!("INSERT INTO {table} VALUES ({id}, \"{name}\", \"{uri}\", {post_code}, {insee}, {level}, {coord}, {boundary})", 
-    table = "cities", name=self.name, id=self.id, uri=self.uri, post_code = self.post_code.unwrap_or_else(default), 
-    insee = self.insee.unwrap_or_else(default), level = self.level.map(|l|l.to_string()).unwrap_or_else(default), coord = coord, boundary = boundary)
-    }
+        let coord = self
+            .coord
+            .map(|c| c.into())
+            .map(|g: geo_types::Geometry<_>| g.to_wkt())
+            .map(|w| w.items[0].to_string())
+            .unwrap_or_else(default);
+        let boundary = self
+            .boundary
+            .map(|c| c.into())
+            .map(|g: geo_types::Geometry<_>| g.to_wkt())
+            .map(|w| w.items[0].to_string())
+            .unwrap_or_else(default);
 
-    fn wkt_coord(&self) -> String {
-        unimplemented!()
-    }
-
-    fn wkt_boundary(&self) -> String {
-        unimplemented!()
+        format!("INSERT INTO {table} VALUES ({id}, \'{name}\', \'{uri}\', \'{post_code}\', \'{insee}\', \'{level}\', \'{coord}\', \'{boundary}\')", 
+            table = "administrative_regions",
+            name=self.name, id=self.id, uri=self.uri,
+            post_code = self.post_code.unwrap_or_else(default), 
+            insee = self.insee.unwrap_or_else(default),
+            level = self.level.map(|l|l.to_string()).unwrap_or_else(default),
+            coord = coord,
+            boundary = boundary
+        )
     }
 }
 
@@ -97,9 +108,12 @@ fn load_cosmogony(input: &str) -> Result<Cosmogony, Error> {
         .map_err(|e| failure::err_msg(e.to_string()))
 }
 
-fn send_to_pg(admins: impl Iterator<Item = String>, cnx_string: &str) -> Result<(), Error> {
-    // let users = sql_query("SELECT * FROM users ORDER BY id")
-    // .load(&connection);
+fn send_to_pg(admins: impl Iterator<Item = String>, connection: Connection) -> Result<(), Error> {
+    admins.for_each(|a| {
+        info!("{}", a);
+        connection.execute(&a, &[]).unwrap();
+
+    });
     unimplemented!()
 }
 
@@ -114,7 +128,9 @@ fn index_cities(args: Args) -> Result<(), Error> {
         .map(|z| z.into())
         .map(|a: AdministrativeRegion| a.to_sql());
 
-    send_to_pg(cities, &args.connection_string)?;
+    let cnx = Connection::connect(args.connection_string, TlsMode::None)
+        .expect(&format!("Error connecting to db"));
+    send_to_pg(cities, cnx)?;
 
     Ok(())
 }
