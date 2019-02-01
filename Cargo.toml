@@ -5,7 +5,7 @@ authors = ["antoine-de <antoine.desbordes@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cosmogony = { version="*", git = "https://github.com/antoine-de/cosmogony.git", rev = "390c7bd06976c4b73e5cdecdcb04e6348d432a24" }
+cosmogony = "0.4"
 structopt = "0.2"
 postgres = "0.15"
 serde = "1.0"
@@ -16,3 +16,7 @@ failure = "0.1"
 geo-types = "0.2"
 itertools = "0.8"
 wkt = "0.2"
+
+[dev-dependencies]
+# Note: at the time of import the postgres docker image was not released, use crates.io version when it's done
+testcontainers = { version="0.5", git = "https://github.com/testcontainers/testcontainers-rs", rev = "0ac4dcbb27482755cda752e76615e4e2e8aff211" }
