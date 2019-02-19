@@ -156,26 +156,6 @@ mod test {
     use super::*;
     use testcontainers::{clients, images, Docker};
 
-    // the wait_for included in the testcontainers crate does not work because the docker image
-    // postgis restart the DB twice, so we can't grep for a specific line
-    fn wait_for_startup(cnx_string: &str) -> Option<Connection> {
-        let waiting_time = std::time::Duration::from_millis(100);
-        let mut duration = std::time::Duration::from_millis(0);
-        while duration < std::time::Duration::from_secs(20) {
-            let conn = Connection::connect(cnx_string.clone(), TlsMode::None);
-
-            if let Ok(conn) = conn {
-                return Some(conn);
-            }
-
-            println!("waiting db startup");
-
-            std::thread::sleep(waiting_time);
-            duration += waiting_time;
-        }
-        return None;
-    }
-
     fn startup_db() -> Connection {
         let docker = clients::Cli::default();
 
@@ -200,7 +180,8 @@ mod test {
             db
         );
 
-        let conn = wait_for_startup(&cnx_string).unwrap();
+        // let conn = wait_for_startup(&cnx_string).unwrap();
+        let conn = Connection::connect(cnx_string, TlsMode::None).expect("unable to connect to db");
 
         conn.execute(
             r#"CREATE TABLE administrative_regions (
