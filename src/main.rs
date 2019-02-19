@@ -4,7 +4,8 @@ use failure::Error;
 use geo_types::{MultiPolygon, Point};
 use itertools::Itertools;
 use log::{error, info};
-use postgres::{types::ToSql, Connection, TlsMode};
+use postgres::types::ToSql;
+use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use std::iter::Iterator;
 use structopt;
 use structopt::StructOpt;
@@ -72,7 +73,7 @@ impl From<Zone> for AdministrativeRegion {
 }
 
 impl AdministrativeRegion {
-    fn into_sql_params(self) -> Vec<Box<dyn ToSql>> {
+    fn into_sql_params(self) -> Vec<Box<dyn ToSql + Send + Sync>> {
         let coord = self
             .coord
             .map(|c| c.into())
@@ -103,39 +104,92 @@ fn load_cosmogony(input: &str) -> Result<Cosmogony, Error> {
 }
 
 fn send_to_pg(
-    admins: impl Iterator<Item = Vec<Box<ToSql>>>,
-    connection: &Connection,
+    admins: impl Iterator<Item = Vec<Box<ToSql + Send + Sync>>>,
+    cnx_pool: &r2d2::Pool<PostgresConnectionManager>,
 ) -> Result<(), Error> {
-    admins.for_each(|a| {
-        let b = a.iter().map(|v| &**v).collect::<Vec<_>>();
-        connection
-            .execute(
-                "INSERT INTO administrative_regions VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7), ST_GeomFromText($8))",
-                &b,
-            )
-            .unwrap();
-    });
+    use par_map::ParMap;
+    let pool = cnx_pool.clone();
+    admins
+        .pack(100)
+        .par_map(move |admins_chunks| {
+            let mut query = "INSERT INTO administrative_regions VALUES ".to_owned();
+
+            let nb_admins = admins_chunks.len();
+            log::info!("bulk inserting {} admins", nb_admins);
+
+            let params = admins_chunks
+                .iter()
+                .flat_map(|a| a.iter().map(|v| &**v as &dyn postgres::types::ToSql))
+                .collect::<Vec<&dyn postgres::types::ToSql>>();
+
+            for i in 0..nb_admins {
+                let base_cpt = i * 8;
+                if i != 0 {
+                    query += ", ";
+                }
+                query += &format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ST_GeomFromText(${}), ST_GeomFromText(${}))",
+                    base_cpt + 1,
+                    base_cpt + 2,
+                    base_cpt + 3,
+                    base_cpt + 4,
+                    base_cpt + 5,
+                    base_cpt + 6,
+                    base_cpt + 7,
+                    base_cpt + 8,
+                );
+            }
+            query += ";";
+
+            log::debug!(
+                "elt: {} -- params: {} -- query: {}",
+                nb_admins,
+                params.len(),
+                &query
+            );
+            let connection = pool.get().unwrap();
+            if let Err(e) = connection.execute(&query, params.as_slice()) {
+                log::warn!("invalid query: {}, error: {}", query, e); //TODO return an error
+            }
+        })
+        .for_each(|_| {});
+
+    // admins.for_each(move |a| {
+    //     let b = a.iter().map(|v| &**v as &dyn postgres::types::ToSql).collect::<Vec<_>>();
+    //         let connection = pool.get().unwrap();
+    //     connection
+    //         .execute(
+    //             "INSERT INTO administrative_regions VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7), ST_GeomFromText($8))",
+    //             &b,
+    //         ).unwrap();
+    // });
+
     Ok(())
 }
 
-fn import_zones(zones: impl IntoIterator<Item = Zone>, cnx: &Connection) -> Result<(), Error> {
+fn import_zones(
+    zones: impl IntoIterator<Item = Zone>,
+    cnx_pool: &r2d2::Pool<PostgresConnectionManager>,
+) -> Result<(), Error> {
     let cities = zones
         .into_iter()
         .filter(|z| z.zone_type == Some(ZoneType::City))
         .map(|z| z.into())
         .map(|a: AdministrativeRegion| a.into_sql_params());
 
-    send_to_pg(cities, &cnx)
+    send_to_pg(cities, cnx_pool)
 }
 
 fn index_cities(args: Args) -> Result<(), Error> {
     info!("importing cosmogony into cities");
-    let cnx =
-        Connection::connect(args.connection_string, TlsMode::None).expect("Error connecting to db");
+
+    let manager = PostgresConnectionManager::new(args.connection_string, TlsMode::None)
+        .expect("Error connecting to db");
+    let pool = r2d2::Pool::new(manager).expect("impossible to create pool");
 
     let cosmogony = load_cosmogony(&args.input)?;
 
-    import_zones(cosmogony.zones, &cnx)?;
+    import_zones(cosmogony.zones, &pool)?;
 
     Ok(())
 }
@@ -156,7 +210,7 @@ mod test {
     use super::*;
     use testcontainers::{clients, images, Docker};
 
-    fn startup_db() -> Connection {
+    fn startup_db() -> r2d2::Pool<r2d2_postgres::PostgresConnectionManager> {
         let docker = clients::Cli::default();
 
         let db = "gis";
@@ -180,8 +234,11 @@ mod test {
             db
         );
 
-        // let conn = wait_for_startup(&cnx_string).unwrap();
-        let conn = Connection::connect(cnx_string, TlsMode::None).expect("unable to connect to db");
+        let manager = PostgresConnectionManager::new(cnx_string, r2d2_postgres::TlsMode::None)
+            .expect("Error connecting to db");
+        let pool = r2d2::Pool::new(manager).expect("impossible to create pool");
+
+        let conn = pool.get().expect("unable to connect to db");
 
         conn.execute(
             r#"CREATE TABLE administrative_regions (
@@ -205,43 +262,46 @@ mod test {
             )
             .unwrap();
 
-        conn
-    }
-
-    struct TestInitializer<'a> {
-        pub conn: &'a Connection,
-    }
-    impl<'a> TestInitializer<'a> {
-        fn new(conn: &'a Connection) -> Self {
-            conn.execute("TRUNCATE TABLE administrative_regions;", &[])
-                .unwrap();
-            TestInitializer { conn }
-        }
+        pool
     }
 
     #[test]
     fn tests() {
-        let cnx = startup_db();
-        test_null_boundaries(TestInitializer::new(&cnx));
-        test_boundaries_and_insee(TestInitializer::new(&cnx));
-    }
+        let pool = startup_db();
 
-    fn test_null_boundaries(test_init: TestInitializer) {
-        let cnx = test_init.conn;
+        let cnx = pool.get().unwrap();
 
-        let mut zone = cosmogony::Zone::default();
-        zone.id = cosmogony::ZoneIndex { index: 0 };
-        zone.name = "toto".to_owned();
-        zone.osm_id = "bob".to_owned();
-        zone.zone_type = Some(cosmogony::ZoneType::City);
-        import_zones(std::iter::once(zone), &cnx).unwrap();
+        let mut zone1 = cosmogony::Zone::default();
+        zone1.id = cosmogony::ZoneIndex { index: 0 };
+        zone1.name = "toto".to_owned();
+        zone1.osm_id = "bob".to_owned();
+        zone1.zone_type = Some(cosmogony::ZoneType::City);
+
+        let mut zone2 = cosmogony::Zone::default();
+        zone2.id = cosmogony::ZoneIndex { index: 1 };
+        zone2.name = "toto".to_owned();
+        zone2.tags = vec![("ref:INSEE", "75111"), ("addr:postcode", "75011")]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        zone2.zone_type = Some(cosmogony::ZoneType::City);
+        zone2.center = Some((12., 14.).into());
+        let poly = geo_types::Polygon::new(
+            (vec![(0., 0.), (1., 0.), (1., 1.), (0., 1.), (0., 0.)]).into(),
+            Vec::new(),
+        );
+        let multipoly = MultiPolygon(vec![poly]);
+        zone2.boundary = Some(multipoly);
+
+        let zones = vec![zone1, zone2];
+        import_zones(zones, &pool).unwrap();
 
         let rows = cnx
             .query("SELECT id, name, uri, level, post_code, insee,
             ST_ASTEXT(coord) as coord, ST_ASTEXT(boundary) as boundary FROM administrative_regions;", &[])
             .unwrap();
 
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         let r = rows.get(0);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:bob".to_owned());
@@ -251,36 +311,8 @@ mod test {
         assert_eq!(r.get::<_, Option<String>>("insee"), None);
         assert_eq!(r.get::<_, Option<String>>("coord"), None);
         assert_eq!(r.get::<_, Option<String>>("boundary"), None);
-    }
 
-    fn test_boundaries_and_insee(test_init: TestInitializer) {
-        let cnx = test_init.conn;
-
-        let mut zone = cosmogony::Zone::default();
-        zone.id = cosmogony::ZoneIndex { index: 1 };
-        zone.name = "toto".to_owned();
-        zone.tags = vec![("ref:INSEE", "75111"), ("addr:postcode", "75011")]
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v.to_owned()))
-            .collect();
-        zone.zone_type = Some(cosmogony::ZoneType::City);
-        zone.center = Some((12., 14.).into());
-        let poly = geo_types::Polygon::new(
-            (vec![(0., 0.), (1., 0.), (1., 1.), (0., 1.), (0., 0.)]).into(),
-            Vec::new(),
-        );
-        let multipoly = MultiPolygon(vec![poly]);
-        zone.boundary = Some(multipoly);
-
-        import_zones(std::iter::once(zone), &cnx).unwrap();
-
-        let rows = cnx
-            .query("SELECT id, name, uri, level, post_code, insee,
-            ST_ASTEXT(coord) as coord, ST_ASTEXT(boundary) as boundary FROM administrative_regions;", &[])
-            .unwrap();
-
-        assert_eq!(rows.len(), 1);
-        let r = rows.get(0);
+        let r = rows.get(1);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:75111".to_owned());
         assert_eq!(r.get::<_, i32>("id"), 1);
