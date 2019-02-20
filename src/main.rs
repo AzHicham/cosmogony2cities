@@ -153,17 +153,6 @@ fn send_to_pg(
             }
         })
         .for_each(|_| {});
-
-    // admins.for_each(move |a| {
-    //     let b = a.iter().map(|v| &**v as &dyn postgres::types::ToSql).collect::<Vec<_>>();
-    //         let connection = pool.get().unwrap();
-    //     connection
-    //         .execute(
-    //             "INSERT INTO administrative_regions VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7), ST_GeomFromText($8))",
-    //             &b,
-    //         ).unwrap();
-    // });
-
     Ok(())
 }
 
@@ -189,6 +178,7 @@ fn index_cities(args: Args) -> Result<(), Error> {
 
     let cosmogony = load_cosmogony(&args.input)?;
 
+    info!("cosmogony loaded, importing it in db");
     import_zones(cosmogony.zones, &pool)?;
 
     Ok(())
@@ -211,6 +201,8 @@ mod test {
     use testcontainers::{clients, images, Docker};
 
     fn startup_db() -> r2d2::Pool<r2d2_postgres::PostgresConnectionManager> {
+        Builder::from_env(Env::default().default_filter_or("info")).init();
+        info!("starting up the test database");
         let docker = clients::Cli::default();
 
         let db = "gis";
@@ -225,7 +217,9 @@ mod test {
             .with_env_var("POSTGRES_USER", user)
             .with_env_var("POSTGRES_PASSWORD", password);
 
+        info!("runing the docker");
         let node = docker.run(generic_postgres);
+        info!("docker started");
         let cnx_string = format!(
             "postgres://{}:{}@localhost:{}/{}",
             user,
@@ -240,6 +234,7 @@ mod test {
 
         let conn = pool.get().expect("unable to connect to db");
 
+        info!("preparing the db schema");
         conn.execute(
             r#"CREATE TABLE administrative_regions (
     id SERIAL PRIMARY KEY,

@@ -4,6 +4,6 @@ rust:
   - stable
 before_script: rustup component add rustfmt clippy
 script:
-  - cargo test --all
-  - cargo fmt --all -- --check
+  - RUST_BACKTRACE=1 cargo test -- --nocapture
+  - cargo fmt -- --check
   - cargo clippy -- -D warnings
