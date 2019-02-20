@@ -250,7 +250,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "cosmogony"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/antoine-de/cosmogony.git?rev=9af184372e039540bdfd50a6385b1f2d76bc95a1#9af184372e039540bdfd50a6385b1f2d76bc95a1"
 dependencies = [
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -281,7 +281,7 @@ dependencies = [
 name = "cosmogony2cities"
 version = "0.1.0"
 dependencies = [
- "cosmogony 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cosmogony 0.4.0 (git+https://github.com/antoine-de/cosmogony.git?rev=9af184372e039540bdfd50a6385b1f2d76bc95a1)",
  "env_logger 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "geo-types 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1852,7 +1852,7 @@ dependencies = [
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
 "checksum cloudabi 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 "checksum constant_time_eq 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "8ff012e225ce166d4422e0e78419d901719760f62ae2b7969ca6b564d1b54a9e"
-"checksum cosmogony 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d39bd8b8ed15b27c9e853522129bf64514f4bbe3887113fac45987bf6ec44ddc"
+"checksum cosmogony 0.4.0 (git+https://github.com/antoine-de/cosmogony.git?rev=9af184372e039540bdfd50a6385b1f2d76bc95a1)" = "<none>"
 "checksum crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d663548de7f5cca343f1e0a48d14dcfb0e9eb4e079ec58883b7251539fa10aeb"
 "checksum crc32fast 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e91d5240c6975ef33aeb5f148f35275c25eda8e8a5f95abe421978b05b8bf192"
 "checksum crossbeam-deque 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f739f8c5363aca78cfb059edf753d8f0d36908c348f3d8d1503f03d8b75d9cf3"

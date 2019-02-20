@@ -98,11 +98,6 @@ impl AdministrativeRegion {
     }
 }
 
-fn load_cosmogony(input: &str) -> Result<Cosmogony, Error> {
-    serde_json::from_reader(std::fs::File::open(&input)?)
-        .map_err(|e| failure::err_msg(e.to_string()))
-}
-
 fn send_to_pg(
     admins: impl Iterator<Item = Vec<Box<ToSql + Send + Sync>>>,
     cnx_pool: &r2d2::Pool<PostgresConnectionManager>,
@@ -176,10 +171,13 @@ fn index_cities(args: Args) -> Result<(), Error> {
         .expect("Error connecting to db");
     let pool = r2d2::Pool::new(manager).expect("impossible to create pool");
 
-    let cosmogony = load_cosmogony(&args.input)?;
+    let zones = cosmogony::read_zones_from_file(&args.input)?.filter_map(|r| {
+        r.map_err(|e| log::warn!("impossible to read zone: {}", e))
+            .ok()
+    });
 
     info!("cosmogony loaded, importing it in db");
-    import_zones(cosmogony.zones, &pool)?;
+    import_zones(zones, &pool)?;
 
     Ok(())
 }
