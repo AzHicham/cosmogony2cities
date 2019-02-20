@@ -200,7 +200,8 @@ mod test {
     use super::*;
     use testcontainers::{clients, images, Docker};
 
-    fn startup_db() -> r2d2::Pool<r2d2_postgres::PostgresConnectionManager> {
+    #[test]
+    fn tests() {
         Builder::from_env(Env::default().default_filter_or("info")).init();
         info!("starting up the test database");
         let docker = clients::Cli::default();
@@ -217,7 +218,7 @@ mod test {
             .with_env_var("POSTGRES_USER", user)
             .with_env_var("POSTGRES_PASSWORD", password);
 
-        info!("runing the docker");
+        info!("running the docker");
         let node = docker.run(generic_postgres);
         info!("docker started");
         let cnx_string = format!(
@@ -257,13 +258,6 @@ mod test {
             )
             .unwrap();
 
-        pool
-    }
-
-    #[test]
-    fn tests() {
-        let pool = startup_db();
-
         let cnx = pool.get().unwrap();
 
         let mut zone1 = cosmogony::Zone::default();
@@ -294,7 +288,7 @@ mod test {
         let rows = cnx
             .query("SELECT id, name, uri, level, post_code, insee,
             ST_ASTEXT(coord) as coord, ST_ASTEXT(boundary) as boundary FROM administrative_regions;", &[])
-            .unwrap();
+            .expect("impossible to query db");
 
         assert_eq!(rows.len(), 2);
         let r = rows.get(0);
