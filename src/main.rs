@@ -1,13 +1,11 @@
-use cosmogony::{Cosmogony, Zone, ZoneType};
+use cosmogony::{Zone, ZoneType};
 use env_logger::{Builder, Env};
 use failure::Error;
 use geo_types::{MultiPolygon, Point};
 use itertools::Itertools;
 use log::{error, info};
-use postgres::types::ToSql;
-use r2d2_postgres::{PostgresConnectionManager, TlsMode};
+use postgres::{types::ToSql, Connection, TlsMode};
 use std::iter::Iterator;
-use structopt;
 use structopt::StructOpt;
 use wkt::ToWkt;
 
@@ -100,22 +98,19 @@ impl AdministrativeRegion {
 
 fn send_to_pg(
     admins: impl Iterator<Item = Vec<Box<ToSql + Send + Sync>>>,
-    cnx_pool: &r2d2::Pool<PostgresConnectionManager>,
+    cnx: &Connection,
 ) -> Result<(), Error> {
     use par_map::ParMap;
-    let pool = cnx_pool.clone();
+
+    let transaction = cnx.transaction()?;
+    transaction.execute("TRUNCATE TABLE administrative_regions;", &[])?;
+
     admins
-        .pack(100)
+        .pack(500)
         .par_map(move |admins_chunks| {
             let mut query = "INSERT INTO administrative_regions VALUES ".to_owned();
 
             let nb_admins = admins_chunks.len();
-            log::info!("bulk inserting {} admins", nb_admins);
-
-            let params = admins_chunks
-                .iter()
-                .flat_map(|a| a.iter().map(|v| &**v as &dyn postgres::types::ToSql))
-                .collect::<Vec<&dyn postgres::types::ToSql>>();
 
             for i in 0..nb_admins {
                 let base_cpt = i * 8;
@@ -135,41 +130,41 @@ fn send_to_pg(
                 );
             }
             query += ";";
+            (query, admins_chunks)
+        })
+        .for_each(|(query, admins_chunks): (String, _)| {
+            log::info!("bulk inserting {} admins", admins_chunks.len());
+            let params = admins_chunks
+                .iter()
+                .flat_map(|a| a.iter().map(|v| &**v as &dyn postgres::types::ToSql))
+                .collect::<Vec<&dyn postgres::types::ToSql>>();
 
-            log::debug!(
-                "elt: {} -- params: {} -- query: {}",
-                nb_admins,
-                params.len(),
-                &query
-            );
-            let connection = pool.get().unwrap();
-            if let Err(e) = connection.execute(&query, params.as_slice()) {
+            log::debug!("query: {} -- params {:?}", &query, &params);
+
+            if let Err(e) = transaction.execute(&query, params.as_slice()) {
                 log::warn!("invalid query: {}, error: {}", query, e); //TODO return an error
             }
-        })
-        .for_each(|_| {});
+        });
+
+    transaction.commit()?;
     Ok(())
 }
 
-fn import_zones(
-    zones: impl IntoIterator<Item = Zone>,
-    cnx_pool: &r2d2::Pool<PostgresConnectionManager>,
-) -> Result<(), Error> {
+fn import_zones(zones: impl IntoIterator<Item = Zone>, cnx: &Connection) -> Result<(), Error> {
     let cities = zones
         .into_iter()
         .filter(|z| z.zone_type == Some(ZoneType::City))
         .map(|z| z.into())
         .map(|a: AdministrativeRegion| a.into_sql_params());
 
-    send_to_pg(cities, cnx_pool)
+    send_to_pg(cities, cnx)
 }
 
 fn index_cities(args: Args) -> Result<(), Error> {
     info!("importing cosmogony into cities");
 
-    let manager = PostgresConnectionManager::new(args.connection_string, TlsMode::None)
-        .expect("Error connecting to db");
-    let pool = r2d2::Pool::new(manager).expect("impossible to create pool");
+    let cnx =
+        Connection::connect(args.connection_string, TlsMode::None).expect("Error connecting to db");
 
     let zones = cosmogony::read_zones_from_file(&args.input)?.filter_map(|r| {
         r.map_err(|e| log::warn!("impossible to read zone: {}", e))
@@ -177,7 +172,7 @@ fn index_cities(args: Args) -> Result<(), Error> {
     });
 
     info!("cosmogony loaded, importing it in db");
-    import_zones(zones, &pool)?;
+    import_zones(zones, &cnx)?;
 
     Ok(())
 }
@@ -227,11 +222,7 @@ mod test {
             db
         );
 
-        let manager = PostgresConnectionManager::new(cnx_string, r2d2_postgres::TlsMode::None)
-            .expect("Error connecting to db");
-        let pool = r2d2::Pool::new(manager).expect("impossible to create pool");
-
-        let conn = pool.get().expect("unable to connect to db");
+        let conn = Connection::connect(cnx_string, TlsMode::None).expect("Error connecting to db");
 
         info!("preparing the db schema");
         conn.execute(
@@ -256,8 +247,6 @@ mod test {
             )
             .unwrap();
 
-        let cnx = pool.get().unwrap();
-
         let mut zone1 = cosmogony::Zone::default();
         zone1.id = cosmogony::ZoneIndex { index: 0 };
         zone1.name = "toto".to_owned();
@@ -281,9 +270,9 @@ mod test {
         zone2.boundary = Some(multipoly);
 
         let zones = vec![zone1, zone2];
-        import_zones(zones, &pool).unwrap();
+        import_zones(zones, &conn).unwrap();
 
-        let rows = cnx
+        let rows = conn
             .query("SELECT id, name, uri, level, post_code, insee,
             ST_ASTEXT(coord) as coord, ST_ASTEXT(boundary) as boundary FROM administrative_regions;", &[])
             .expect("impossible to query db");
