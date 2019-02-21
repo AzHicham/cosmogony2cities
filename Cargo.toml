@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 #cosmogony = "0.5"
-cosmogony = { git = "https://github.com/antoine-de/cosmogony.git", rev = "9af184372e039540bdfd50a6385b1f2d76bc95a1"}
+cosmogony = { git = "https://github.com/antoine-de/cosmogony.git", rev = "1719ea7e842dcec6c923218909a5dd77acd7baf1"}
 structopt = "0.2"
 postgres = "0.15"
 serde = "1.0"
