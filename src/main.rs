@@ -35,6 +35,18 @@ pub struct AdministrativeRegion {
     boundary: Option<MultiPolygon<f64>>,
 }
 
+fn format_zip_codes(zip_codes: &[String]) -> Option<String> {
+    match zip_codes.len() {
+        0 => None,
+        1 => Some(format!("{}", zip_codes.first().unwrap())),
+        _ => Some(format!(
+            "{}-{}",
+            zip_codes.first().unwrap(),
+            zip_codes.last().unwrap()
+        )),
+    }
+}
+
 impl From<Zone> for AdministrativeRegion {
     fn from(zone: Zone) -> Self {
         let insee = zone
@@ -46,7 +58,7 @@ impl From<Zone> for AdministrativeRegion {
         } else {
             format!("admin:osm:{}", zone.osm_id)
         };
-        let mut zip_code = zone
+        let zip_codes: Vec<_> = zone
             .tags
             .get("addr:postcode")
             .or_else(|| zone.tags.get("postal_code"))
@@ -54,9 +66,10 @@ impl From<Zone> for AdministrativeRegion {
             .split(';')
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
-            .sorted();
+            .sorted()
+            .collect();
 
-        let post_code = zip_code.next();
+        let post_code = format_zip_codes(&zip_codes);
         Self {
             id: zone.id.index as i32,
             name: zone.name,
@@ -256,7 +269,7 @@ mod test {
         let mut zone2 = cosmogony::Zone::default();
         zone2.id = cosmogony::ZoneIndex { index: 1 };
         zone2.name = "toto".to_owned();
-        zone2.tags = vec![("ref:INSEE", "75111"), ("addr:postcode", "75011")]
+        zone2.tags = vec![("ref:INSEE", "75111"), ("addr:postcode", "75011;75111")]
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect();
@@ -293,7 +306,7 @@ mod test {
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:75111".to_owned());
         assert_eq!(r.get::<_, i32>("id"), 1);
         assert_eq!(r.get::<_, i32>("level"), 8);
-        assert_eq!(r.get::<_, String>("post_code"), "75011".to_owned());
+        assert_eq!(r.get::<_, String>("post_code"), "75011-75111".to_owned());
         assert_eq!(r.get::<_, String>("insee"), "75111".to_owned());
         assert_eq!(r.get::<_, String>("coord"), "POINT(12 14)".to_owned());
         assert_eq!(
