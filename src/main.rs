@@ -25,7 +25,7 @@ struct Args {
 }
 
 pub struct AdministrativeRegion {
-    id: i32,
+    id: i64,
     name: String,
     uri: String,
     post_code: Option<String>,
@@ -71,7 +71,7 @@ impl From<Zone> for AdministrativeRegion {
 
         let post_code = format_zip_codes(&zip_codes);
         Self {
-            id: zone.id.index as i32,
+            id: zone.id.index as i64,
             name: zone.name,
             uri,
             insee,
@@ -118,46 +118,41 @@ fn send_to_pg(
     let transaction = cnx.transaction()?;
     transaction.execute("TRUNCATE TABLE administrative_regions;", &[])?;
 
-    admins
-        .pack(500)
-        .par_map(move |admins_chunks| {
-            let mut query = "INSERT INTO administrative_regions VALUES ".to_owned();
+    for (query, admins_chunks) in admins.pack(500).par_map(move |admins_chunks| {
+        let mut query = "INSERT INTO administrative_regions VALUES ".to_owned();
 
-            let nb_admins = admins_chunks.len();
+        let nb_admins = admins_chunks.len();
 
-            for i in 0..nb_admins {
-                let base_cpt = i * 8;
-                if i != 0 {
-                    query += ", ";
-                }
-                query += &format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ST_GeomFromText(${}), ST_GeomFromText(${}))",
-                    base_cpt + 1,
-                    base_cpt + 2,
-                    base_cpt + 3,
-                    base_cpt + 4,
-                    base_cpt + 5,
-                    base_cpt + 6,
-                    base_cpt + 7,
-                    base_cpt + 8,
-                );
+        for i in 0..nb_admins {
+            let base_cpt = i * 8;
+            if i != 0 {
+                query += ", ";
             }
-            query += ";";
-            (query, admins_chunks)
-        })
-        .for_each(|(query, admins_chunks): (String, _)| {
-            log::info!("bulk inserting {} admins", admins_chunks.len());
-            let params = admins_chunks
-                .iter()
-                .flat_map(|a| a.iter().map(|v| &**v as &dyn postgres::types::ToSql))
-                .collect::<Vec<&dyn postgres::types::ToSql>>();
+            query += &format!(
+                "(${}, ${}, ${}, ${}, ${}, ${}, ST_GeomFromText(${}), ST_GeomFromText(${}))",
+                base_cpt + 1,
+                base_cpt + 2,
+                base_cpt + 3,
+                base_cpt + 4,
+                base_cpt + 5,
+                base_cpt + 6,
+                base_cpt + 7,
+                base_cpt + 8,
+            );
+        }
+        query += ";";
+        (query, admins_chunks)
+    }) {
+        log::info!("bulk inserting {} admins", admins_chunks.len());
+        let params = admins_chunks
+            .iter()
+            .flat_map(|a| a.iter().map(|v| &**v as &dyn postgres::types::ToSql))
+            .collect::<Vec<&dyn postgres::types::ToSql>>();
 
-            log::debug!("query: {} -- params {:?}", &query, &params);
+        log::debug!("query: {} -- params {:?}", &query, &params);
 
-            if let Err(e) = transaction.execute(&query, params.as_slice()) {
-                log::warn!("invalid query: {}, error: {}", query, e); //TODO return an error
-            }
-        });
+        transaction.execute(&query, params.as_slice())?;
+    }
 
     transaction.commit()?;
     Ok(())
@@ -240,7 +235,7 @@ mod test {
         info!("preparing the db schema");
         conn.execute(
             r#"CREATE TABLE administrative_regions (
-    id SERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
     uri TEXT NOT NULL,
     post_code TEXT,
@@ -294,7 +289,7 @@ mod test {
         let r = rows.get(0);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:bob".to_owned());
-        assert_eq!(r.get::<_, i32>("id"), 0);
+        assert_eq!(r.get::<_, i64>("id"), 0);
         assert_eq!(r.get::<_, i32>("level"), 8);
         assert_eq!(r.get::<_, Option<String>>("post_code"), None);
         assert_eq!(r.get::<_, Option<String>>("insee"), None);
@@ -304,7 +299,7 @@ mod test {
         let r = rows.get(1);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:75111".to_owned());
-        assert_eq!(r.get::<_, i32>("id"), 1);
+        assert_eq!(r.get::<_, i64>("id"), 1);
         assert_eq!(r.get::<_, i32>("level"), 8);
         assert_eq!(r.get::<_, String>("post_code"), "75011-75111".to_owned());
         assert_eq!(r.get::<_, String>("insee"), "75111".to_owned());
