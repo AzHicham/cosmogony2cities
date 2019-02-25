@@ -38,7 +38,7 @@ pub struct AdministrativeRegion {
 fn format_zip_codes(zip_codes: &[String]) -> Option<String> {
     match zip_codes.len() {
         0 => None,
-        1 => Some(format!("{}", zip_codes.first().unwrap())),
+        1 => Some(zip_codes.first().unwrap().to_string()),
         _ => Some(format!(
             "{}-{}",
             zip_codes.first().unwrap(),
@@ -54,7 +54,7 @@ impl From<Zone> for AdministrativeRegion {
             .get("ref:INSEE")
             .map(|v| v.trim_left_matches('0').to_string());
         let uri = if let Some(insee) = &insee {
-            format!("admin:osm:{}", insee)
+            format!("admin:fr:{}", insee)
         } else {
             format!("admin:osm:{}", zone.osm_id)
         };
@@ -298,7 +298,7 @@ mod test {
 
         let r = rows.get(1);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
-        assert_eq!(r.get::<_, String>("uri"), "admin:osm:75111".to_owned());
+        assert_eq!(r.get::<_, String>("uri"), "admin:fr:75111".to_owned());
         assert_eq!(r.get::<_, i64>("id"), 1);
         assert_eq!(r.get::<_, i32>("level"), 8);
         assert_eq!(r.get::<_, String>("post_code"), "75011-75111".to_owned());
