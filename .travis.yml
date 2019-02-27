@@ -1,0 +1,11 @@
+language: rust
+cache: cargo
+rust:
+  - stable
+services:
+  - docker
+before_script: rustup component add rustfmt clippy
+script:
+  - RUST_BACKTRACE=1 cargo test -- --nocapture
+  - cargo fmt -- --check
+  - cargo clippy -- -D warnings
