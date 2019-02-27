@@ -3,6 +3,8 @@ name = "cosmogony2cities"
 version = "0.1.0"
 authors = ["antoine-de <antoine.desbordes@gmail.com>"]
 edition = "2018"
+description = "Import cosmogony's cities into a postgresql database"
+license = "Apache-2.0"
 
 [dependencies]
 #cosmogony = "0.5"
