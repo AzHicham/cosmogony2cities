@@ -52,7 +52,7 @@ impl From<Zone> for AdministrativeRegion {
         let insee = zone
             .tags
             .get("ref:INSEE")
-            .map(|v| v.trim_left_matches('0').to_string());
+            .map(|v| v.trim_start_matches('0').to_string());
         let uri = if let Some(insee) = &insee {
             format!("admin:fr:{}", insee)
         } else {
