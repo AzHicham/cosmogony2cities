@@ -22,3 +22,6 @@ par-map = "0.1"
 
 [dev-dependencies]
 testcontainers = "0.7"
+
+[package.metadata.deb]
+section = "base"
