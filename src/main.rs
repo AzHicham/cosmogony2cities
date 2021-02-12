@@ -110,7 +110,7 @@ impl AdministrativeRegion {
 }
 
 fn send_to_pg(
-    admins: impl Iterator<Item = Vec<Box<ToSql + Send + Sync>>>,
+    admins: impl Iterator<Item = Vec<Box<dyn ToSql + Send + Sync>>>,
     cnx: &Connection,
 ) -> Result<(), Error> {
     use par_map::ParMap;
