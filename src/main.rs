@@ -277,7 +277,17 @@ mod test {
         let multipoly = MultiPolygon(vec![poly]);
         zone2.boundary = Some(multipoly);
 
-        let zones = vec![zone1, zone2];
+        let mut zone3 = cosmogony::Zone::default();
+        zone3.id = cosmogony::ZoneIndex { index: 2 };
+        zone3.name = "insee with zero".to_owned();
+        zone3.osm_id = "insee_with_zero".to_owned();
+        zone3.tags = vec![("ref:INSEE", "01249"), ("addr:postcode", "01700")]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        zone3.zone_type = Some(cosmogony::ZoneType::City);
+
+        let zones = vec![zone1, zone2, zone3];
         import_zones(zones, &conn).unwrap();
 
         let rows = conn
@@ -285,7 +295,7 @@ mod test {
             ST_ASTEXT(coord) as coord, ST_ASTEXT(boundary) as boundary FROM administrative_regions;", &[])
             .expect("impossible to query db");
 
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         let r = rows.get(0);
         assert_eq!(r.get::<_, String>("name"), "toto".to_owned());
         assert_eq!(r.get::<_, String>("uri"), "admin:osm:bob".to_owned());
@@ -308,5 +318,15 @@ mod test {
             r.get::<_, String>("boundary"),
             "MULTIPOLYGON(((0 0,1 0,1 1,0 1,0 0)))".to_owned()
         );
+
+        let r = rows.get(2);
+        assert_eq!(r.get::<_, String>("name"), "insee with zero".to_owned());
+        assert_eq!(r.get::<_, String>("uri"), "admin:fr:01249".to_owned());
+        assert_eq!(r.get::<_, i64>("id"), 2);
+        assert_eq!(r.get::<_, i32>("level"), 8);
+        assert_eq!(r.get::<_, String>("post_code"), "01700".to_owned());
+        assert_eq!(r.get::<_, String>("insee"), "01249".to_owned());
+        assert_eq!(r.get::<_, Option<String>>("coord"), None);
+        assert_eq!(r.get::<_, Option<String>>("boundary"), None);
     }
 }
