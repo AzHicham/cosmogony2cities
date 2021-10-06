@@ -1,0 +1,34 @@
+pipeline {
+    agent {
+        docker {
+            image 'python:3.6'
+            args '--user root'
+        }
+    }
+    stages {
+         stage('Prepare git env'){
+             steps{
+                 sh "git config --global user.email 'jenkins-core@kisio.com'"
+                 sh "git config --global user.name 'jenkins core'"
+                 sh "git tag -l | xargs git tag -d"
+             }
+         }
+        stage('Install extra packages'){
+            steps {
+                sh '''
+                    pip install git+https://github.com/CanalTP/githubflow_release.git@v0.2.0 --force
+                '''
+            }
+        }
+        stage('Create and push new version'){
+            steps {
+                withCredentials([string(credentialsId: 'jenkins-core-github-access-token', variable: 'GITHUB_TOKEN')]) {
+                    sh '''
+                        githubflow_release --release-type $release_type --base-branch master --github-repo CanalTP/cosmogony2cities  --remote-name origin
+                        git push https://jenkins-kisio-core:$GITHUB_TOKEN@github.com/CanalTP/cosmogony2cities.git master release --tags
+                    '''
+                }
+            }
+        }
+    }
+}
