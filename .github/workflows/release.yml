@@ -1,0 +1,52 @@
+name: Build release packages 
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build_release:
+    runs-on: ubuntu-latest
+
+    container:
+      image: navitia/debian8_dev
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: install rust toolchain
+      run: |
+        apt update
+        apt install -y curl
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > get_rust.sh
+        sh get_rust.sh -y
+        . $HOME/.cargo/env
+        rustup update
+    - name: install packaging tool
+      run: |
+        . $HOME/.cargo/env
+        cargo install --force cargo-deb
+    - name: create packages
+      run: |
+        . $HOME/.cargo/env
+        cargo deb
+    - name: upload debian packages
+      uses: actions/upload-artifact@v2
+      with:
+        name: archive
+        path: target/debian/*.deb
+    - name: Github Release
+      uses: softprops/action-gh-release@v1
+      if: success()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: slack notification (the job has failed)
+      if: failure()
+      run: |
+          echo '{"text":":warning: Cosmogony2cities Github Actions: Build release packages failed ! (https://github.com/CanalTP/cosmogony2cities/actions/workflows/release.yml)."}' | http --json POST ${{secrets.SLACK_NAVITIA_CORE_TEAM_URL}}
+    - name: trig publishing + notifications (the job has successed)
+      if: success()
+      run: |
+          VERSION=$(git tag -l --sort=-v:refname| sed 's/v//g'| head -n 1)
+          echo '{"text":":information_source: Cosmogony2cities Github Actions: Build release packages succeded' Cosmogony2cities $VERSION 'is available"}' | http --json POST ${{secrets.SLACK_NAVITIA_CORE_TEAM_URL}}
